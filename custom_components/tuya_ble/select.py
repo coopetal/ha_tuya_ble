@@ -66,20 +66,49 @@ class TuyaBLECategorySelectMapping:
 
 
 mapping: dict[str, TuyaBLECategorySelectMapping] = {
-    "co2bj": TuyaBLECategorySelectMapping(
+    "cl": TuyaBLECategorySelectMapping(
         products={
-            "59s19z5m":  # CO2 Detector
+            "y0dtvgqf":  # Tubular Motor Shade
             [
                 TuyaBLESelectMapping(
-                    dp_id=101,
-                    description=TemperatureUnitDescription(
+                    dp_id=5,
+                    description=SelectEntityDescription(
+                        key="shade_direction",
                         options=[
-                            UnitOfTemperature.CELSIUS,
-                            UnitOfTemperature.FAHRENHEIT,
+                            "forward",
+                            "back",
                         ],
+                        entity_category=EntityCategory.CONFIG,
+                    )
+                ),
+                TuyaBLESelectMapping(
+                    dp_id=103,
+                    description=SelectEntityDescription(
+                        key="run_mode",
+                        options=[
+                            "roller",
+                            "sheer",
+                        ],
+                        entity_category=EntityCategory.CONFIG,
                     )
                 ),
             ],
+        },
+    ),
+    "co2bj": TuyaBLECategorySelectMapping(
+        products={
+            "59s19z5m":  # CO2 Detector
+                [
+                    TuyaBLESelectMapping(
+                        dp_id=101,
+                        description=TemperatureUnitDescription(
+                            options=[
+                                UnitOfTemperature.CELSIUS,
+                                UnitOfTemperature.FAHRENHEIT,
+                            ],
+                        )
+                    ),
+                ],
         },
     ),
     "ms": TuyaBLECategorySelectMapping(

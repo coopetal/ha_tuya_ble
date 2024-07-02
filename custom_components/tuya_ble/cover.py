@@ -7,9 +7,10 @@ import logging
 from typing import Any, Callable
 
 from homeassistant.components.cover import (
-    CoverEntityDescription,
-    CoverEntity,
     CoverDeviceClass,
+    CoverEntity,
+    CoverEntityDescription,
+    CoverEntityFeature,
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
@@ -19,6 +20,8 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from .const import DOMAIN
 from .devices import TuyaBLEData, TuyaBLEEntity, TuyaBLEProductInfo
 from .tuya_ble import TuyaBLEDataPoint, TuyaBLEDataPointType, TuyaBLEDevice
+
+_LOGGER = logging.getLogger(__name__)
 
 
 @dataclass
@@ -60,26 +63,20 @@ class TuyaBLECategoryCoverMapping:
 mapping: dict[str, TuyaBLECategoryCoverMapping] = {
     "cl": TuyaBLECategoryCoverMapping(
         products={
-            "bfa138omin59lm6l": [  # Tubular Motor Shade
+            "y0dtvgqf": [  # Tubular Motor Shade
                 TuyaBLECoverMapping(
                     description=CoverEntityDescription(
                         key="tubular_motor_shade",
                         device_class=CoverDeviceClass.SHADE,
                     ),
                     control_dp_id=1,
-                    # control_values=["open", "stop", "close", "continue"],
+                    control_values=["open", "stop", "close", "continue"],
                     percent_control_dp_id=2,
                     percent_state_dp_id=3,
-                    control_back_mode_dp_id=5,
-                    # control_back_mode_values=["forward", "back"],
                     angle_dp_id=101,
                     reset_dp_id=102,
                     work_state_dp_id=7,
-                    # work_state_values=["opening", "closing"],
-                    run_mode_dp_id=103,
-                    # run_mode_values=["roller", "sheer"],  # Undocumented, need to test values
                     border_dp_id=105,
-                    # border_values=["up", "down"],
                     fault_dp_id=12,
                 ),
             ],
@@ -116,6 +113,24 @@ class TuyaBLECover(TuyaBLEEntity, CoverEntity):
         super().__init__(hass, coordinator, device, product, mapping.description)
         self._mapping = mapping
 
+        self._attr_control_values = mapping.control_values
+
+        self._attr_is_closed = True
+        self._attr_is_closing = False
+        self._attr_is_opening = False
+
+        self._attr_supported_features = CoverEntityFeature.OPEN
+        self._attr_supported_features |= CoverEntityFeature.CLOSE
+        self._attr_supported_features |= CoverEntityFeature.STOP
+
+        if mapping.percent_control_dp_id and mapping.percent_state_dp_id:
+            self._attr_supported_features |= CoverEntityFeature.SET_POSITION
+            datapoint = self._device.datapoints[self._mapping.percent_state_dp_id]
+            if datapoint:
+                inverted_value = 100 - datapoint.value
+                self._attr_current_cover_position = inverted_value
+                self._attr_is_closed = True if inverted_value == 0 else False
+
     @callback
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator."""
@@ -123,32 +138,71 @@ class TuyaBLECover(TuyaBLEEntity, CoverEntity):
         if self._mapping.percent_state_dp_id != 0:
             datapoint = self._device.datapoints[self._mapping.percent_state_dp_id]
             if datapoint:
-                self._attr_percent_state = datapoint.value
+                inverted_value = 100 - datapoint.value
+                self._attr_current_cover_position = inverted_value
+                self._attr_is_closed = True if inverted_value == 0 else False
 
-        if self._mapping.percent_control_dp_id != 0:
-            datapoint = self._device.datapoints[self._mapping.percent_control_dp_id]
-            if datapoint:
-                self._attr_percent_control = datapoint.value
+        self.get_operation_state()
 
+        self.async_write_ha_state()
+
+    def get_operation_state(self) -> None:
         if self._mapping.work_state_dp_id != 0:
             datapoint = self._device.datapoints[self._mapping.work_state_dp_id]
             if datapoint:
-                self._attr_work_state = datapoint.value
+                if datapoint.value == "closing":
+                    self._attr_is_closing = True
+                    self._attr_is_opening = False
+                elif datapoint.value == "opening":
+                    self._attr_is_closing = False
+                    self._attr_is_opening = True
+                else:
+                    self._attr_is_closing = False
+                    self._attr_is_opening = False
+            else:
+                self._attr_is_closing = False
+                self._attr_is_opening = False
 
-        if self._mapping.control_back_mode_dp_id != 0:
-            datapoint = self._device.datapoints[self._mapping.control_back_mode_dp_id]
-            if datapoint:
-                self._attr_control_back_mode = datapoint.value
+    async def async_open_cover(self) -> None:
+        int_value = self._attr_control_values.index("open")
+        datapoint = self._device.datapoints.get_or_create(
+            self._mapping.control_dp_id,
+            TuyaBLEDataPointType.DT_ENUM,
+            int_value,
+        )
+        if datapoint:
+            self._hass.create_task(datapoint.set_value(int_value))
 
-        if self._mapping.angle_dp_id != 0:
-            datapoint = self._device.datapoints[self._mapping.angle_dp_id]
-            if datapoint:
-                self._attr_angle = datapoint.value
+    async def async_close_cover(self) -> None:
+        int_value = self._attr_control_values.index("close")
+        datapoint = self._device.datapoints.get_or_create(
+            self._mapping.control_dp_id,
+            TuyaBLEDataPointType.DT_ENUM,
+            int_value,
+        )
+        if datapoint:
+            self._hass.create_task(datapoint.set_value(int_value))
 
-        if self._mapping.run_mode_dp_id != 0:
-            datapoint = self._device.datapoints[self._mapping.run_mode_dp_id]
+    async def async_stop_cover(self) -> None:
+        int_value = self._attr_control_values.index("stop")
+        datapoint = self._device.datapoints.get_or_create(
+            self._mapping.control_dp_id,
+            TuyaBLEDataPointType.DT_ENUM,
+            int_value,
+        )
+        if datapoint:
+            self._hass.create_task(datapoint.set_value(int_value))
+
+    async def async_set_cover_position(self, position: int) -> None:
+        if self._mapping.percent_control_dp_id != 0:
+            int_value = 100 - position
+            datapoint = self._device.datapoints.get_or_create(
+                self._mapping.percent_control_dp_id,
+                TuyaBLEDataPointType.DT_VALUE,
+                int_value,
+            )
             if datapoint:
-                self._attr_run_mode = datapoint.value
+                self._hass.create_task(datapoint.set_value(int_value))
 
 
 async def async_setup_entry(

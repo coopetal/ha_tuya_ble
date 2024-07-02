@@ -479,7 +479,7 @@ devices_database: dict[str, TuyaBLECategoryInfo] = {
     ),
     "cl": TuyaBLECategoryInfo(
         products={
-            "bfa138omin59lm6l":  # device product_id
+            "y0dtvgqf":  # device product_id
             TuyaBLEProductInfo(
                 name="Tubular Motor Shade",
             ),
